@@ -1,0 +1,144 @@
+from dataclasses import dataclass, field
+from typing import Union
+import torch
+from transformers import (
+    HfArgumentParser,
+    Qwen2_5OmniForConditionalGeneration,
+    Qwen2_5OmniProcessor
+)
+from qwen_omni_utils import process_mm_info
+import sys 
+import os
+import logging
+
+logger = logging.getLogger(__name__)
+
+@dataclass
+class ModelArguments:
+    model_name_or_path: str = field(
+        default='Qwen/Qwen2.5-Omni-3B',
+        metadata={'help':'Hugging face model name or local model path'}
+    )
+    cache_dir: str = field(
+        default=f'./{model_name_or_path}-cache',
+        metadata={'help':'Where to cache model and data'}
+    )
+    device_map: str = field(
+        default='auto',
+        metadata={'help':'Devices to load model'}
+    )
+    torch_dtype: Union[str, torch.dtype] = field(
+        default='auto',
+        metadata={'help':'Default = auto'}
+    )
+    weights_only: bool = field(
+        default=False,
+        metadata={'help':'Default weights_only=False'}
+    )
+
+@dataclass
+class ProcessingArguments:
+    add_generation_prompt: bool = field(
+        default=True,
+        metadata={'help':'Default add_generation_prompt=True'}
+    )
+    tokenize: bool = field(
+        default=False,
+        metadata={'help':'Default tokenize=False'}
+    )
+    use_audio_in_video: bool = field(
+        default=False,
+        metadata={'help':'Default use_audio_in_video=False'}
+    )
+    speaker:str = field(
+        default='Chelsie',
+        metadata={'help':'Default speaker="Chelsie"'}
+    )
+    return_audio: bool = field(
+        default=True,
+        metadata={'help':'Default return_audio=True'}
+    )
+
+
+# Function to check Flash Attention 2 compatibility
+def is_flash_attention_2_supported():
+    try:
+        # Check CUDA availability and compute capability
+        if not torch.cuda.is_available():
+            print("CUDA not available.")
+            return False
+        compute_capability = torch.cuda.get_device_properties(0).major * 10 + torch.cuda.get_device_properties(0).minor
+        if compute_capability < 80:  # Need compute capability >= 8.0
+            print(f"GPU compute capability {compute_capability/10} is not supported (requires >= 8.0).")
+            return False
+
+        # Check PyTorch and CUDA versions
+        torch_version = torch.__version__.split("+")[0]
+        torch_major, torch_minor = map(int, torch_version.split(".")[:2])
+        cuda_version = torch.version.cuda
+        cuda_major, cuda_minor = map(int, cuda_version.split(".")[:2]) if cuda_version else (0, 0)
+        if torch_major < 2 or (torch_major == 2 and torch_minor < 2):
+            print(f"PyTorch {torch_version} is not supported (requires >= 2.2).")
+            return False
+        if cuda_major < 11 or (cuda_major == 11 and cuda_minor < 7):
+            print(f"CUDA {cuda_version} is not supported (requires >= 11.7).")
+            return False
+
+        # Check Flash Attention availability
+        if not torch.backends.cuda.flash_sdp_enabled():
+            print("FlashAttention-2 is not available. Ensure flash-attn >= 2.1.0 is installed.")
+            return False
+
+        print("FlashAttention-2 is supported.")
+        return True
+    except Exception as e:
+        print(f"Error checking FlashAttention-2 compatibility: {e}")
+        return False
+    
+
+
+def main():
+
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+    for i in range(torch.cuda.device_count()):
+        with torch.cuda.device(i):
+            torch.cuda.empty_cache()
+
+    # 1. Parser
+    parser = HfArgumentParser(ModelArguments, ProcessingArguments)
+    if len(sys.argv) == 2 and sys.argv[1].endswith('json'):
+        model_args, processing_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
+    else:
+        model_args, processing_args = parser.parse_args_into_dataclasses()
+
+
+    # 2. Load model and processor
+    attn_implementation = "flash_attention_2" if is_flash_attention_2_supported() else "sdpa"
+    logger.info(f"Using attention implementation: {attn_implementation}")
+    model = Qwen2_5OmniForConditionalGeneration.from_pretrained(
+        model_args.model_name_or_path,
+        device_map=model_args.model_name_or_path,
+        torch_dtype=model_args.torch_dtype,
+        attn_implementation=attn_implementation,
+        weights_only=model_args.weights_only
+    )
+
+    processor = Qwen2_5OmniProcessor.from_pretrained(
+        model_args.model_name_or_path,
+
+    )
+
+    def prepare_inputs(conversation=None, input=None):
+        
+
+
+        text = processor.apply_chat_template(conversation, add_generation_prompt=processing_args.add_generation_prompt, tokenize=processing_args.tokenize)
+        audios, images, videos = process_mm_info(conversation, use_audio_in_video=processing_args.use_audio_in_video)
+        inputs = processor(text=text, audio=audios, images=images, videos=videos, return_tensors="pt", padding=True, use_audio_in_video=processing_args.use_audio_in_video)
+        # Move inputs to model dtype and device
+        inputs = inputs.to(model.device).to(model.dtype)
+        return conversation, inputs
+
+
+
+
