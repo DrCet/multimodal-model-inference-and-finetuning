@@ -224,8 +224,17 @@ def main():
         ]
 
         # Create chat interface
-        prompt_widget = widgets.Text(description="You:", placeholder="Type your prompt (e.g., Describe image1.jpg and image2.jpg)")
-        submit_button = widgets.Button(description="Submit")
+        prompt_widget = widgets.Text(
+            value='',
+            placeholder='Type your prompt (e.g., Describe image1.jpg and image2.jpg)',
+            description='You:',
+            layout={'width': '500px'}
+        )
+        submit_button = widgets.Button(
+            description='Submit',
+            button_style='primary',
+            tooltip='Click to submit prompt'
+        )
         output = widgets.Output()
 
         def on_submit(button):
@@ -237,7 +246,7 @@ def main():
                     return
 
                 elements = extract_prompt_elements(prompt, verbose=True)
-                conversation_copy = conversation.copy()  # Avoid modifying global conversation
+                conversation_copy = conversation.copy()
                 conv, inputs = prepare_inputs(conversation_copy, elements, processing_args, processor, model)
 
                 try:
@@ -263,12 +272,33 @@ def main():
                 if audio is not None:
                     audio_data, sample_rate = sf.read(output_audio)
                     audio_duration = len(audio_data) / sample_rate
-                    display(Audio(output_audio, autoplay=False))
+                    display(Audio(output_audio, autoplay=True))
                     time.sleep(audio_duration + 0.5)
+                prompt_widget.value = ''  # Clear input after submission
 
         submit_button.on_click(on_submit)
         display(widgets.VBox([prompt_widget, submit_button, output]))
 
+        # Fallback non-interactive mode
+        print("If the widget doesn't display, use this cell to test a prompt:")
+        test_prompt = "Describe /kaggle/input/your-dataset/image1.jpg and /kaggle/input/your-dataset/image2.jpg"
+        print(f"Testing with prompt: {test_prompt}")
+        elements = extract_prompt_elements(test_prompt, verbose=True)
+        conversation_copy = conversation.copy()
+        conv, inputs = prepare_inputs(conversation_copy, elements, processing_args, processor, model)
+        try:
+            text_ids, audio = model.generate(**inputs, use_audio_in_video=processing_args.use_audio_in_video)
+            text = processor.batch_decode(text_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)
+            response = text[0].split('assistant\n')[-1]
+            os.makedirs('.generated_audio', exist_ok=True)
+            output_audio = ".generated_audio/test_response.wav"
+            if audio is not None:
+                sf.write(output_audio, audio.reshape(-1).detach().cpu().numpy(), samplerate=24000)
+            print("Assistant (test):", response)
+            if audio is not None:
+                display(Audio(output_audio, autoplay=True))
+        except Exception as e:
+            print(f"Test inference failed: {e}")
     chat()
 
 if __name__ == '__main__':
