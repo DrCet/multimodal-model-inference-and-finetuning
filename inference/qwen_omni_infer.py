@@ -121,7 +121,7 @@ def main():
     logger.info(f"Using attention implementation: {attn_implementation}")
     model = Qwen2_5OmniForConditionalGeneration.from_pretrained(
         model_args.model_name_or_path,
-        device_map=model_args.model_name_or_path,
+        device_map=model_args.device_map,
         torch_dtype=model_args.torch_dtype,
         attn_implementation=attn_implementation,
         weights_only=model_args.weights_only
