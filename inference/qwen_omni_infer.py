@@ -31,9 +31,9 @@ class ModelArguments:
         default='auto',
         metadata={'help':'Devices to load model'}
     )
-    torch_dtype: Union[str, torch.dtype] = field(
-        default='auto',
-        metadata={'help':'Default = auto'}
+    torch_dtype: str = field(
+        default='auto',  # Fixed: string type, valid dtype
+        metadata={'help': 'Torch dtype (float16, bfloat16, float32, auto)'}
     )
     weights_only: bool = field(
         default=False,
