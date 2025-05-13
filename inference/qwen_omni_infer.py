@@ -285,7 +285,7 @@ def main():
         print(f"Testing with prompt: {test_prompt}")
         elements = extract_prompt_elements(test_prompt, verbose=True)
         conversation_copy = conversation.copy()
-        conv, inputs = prepare_inputs(conversation_copy, elements, processing_args, processor, model)
+        conv, inputs = prepare_inputs(conversation_copy, elements)
         try:
             text_ids, audio = model.generate(**inputs, use_audio_in_video=processing_args.use_audio_in_video)
             text = processor.batch_decode(text_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)
