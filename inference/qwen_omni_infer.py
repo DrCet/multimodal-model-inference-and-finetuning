@@ -249,7 +249,7 @@ def main():
             print("Assistant", response)
             display(Audio('.generated_audio/reponse.wav')) 
 
-
+    chat()
 
 if __name__ == '__main__':
     main()
