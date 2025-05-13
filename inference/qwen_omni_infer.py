@@ -109,7 +109,7 @@ def main():
             torch.cuda.empty_cache()
 
     # 1. Parser
-    parser = HfArgumentParser(ModelArguments, ProcessingArguments)
+    parser = HfArgumentParser((ModelArguments, ProcessingArguments))
     if len(sys.argv) == 2 and sys.argv[1].endswith('json'):
         model_args, processing_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
     else:
