@@ -12,7 +12,10 @@ import os
 import logging
 import re
 import soundfile as sf 
-from IPython.display import Audio, display
+from IPython.display import Audio, display, clear_output
+import time
+import ipywidgets as widgets
+
 
 
 logger = logging.getLogger(__name__)
@@ -216,38 +219,55 @@ def main():
                 "role": "system",
                 "content": [
                     {"type": "text", "text": "You are Qwen, a virtual human developed by the Qwen Team, Alibaba Group, capable of perceiving auditory and visual inputs, as well as generating text and speech."}
-                ],
-            },
+                ]
+            }
         ]
-        while True:
-            prompt = input('You: ')
-            if prompt.lower() == 'exit':
-                break
 
-            elements = extract_prompt_elements(prompt)
-            conversation, inputs = prepare_inputs(conversation=conversation, elements=elements)
-            # Inference: Generation of the output text and audio
-            try:
-                print(f"Generating response\n device={model.device} ...")
-                text_ids, audio = model.generate(**inputs, use_audio_in_video=processing_args.use_audio_in_video)
-            except Exception as e:
-                print(f"Inference failed: {e}")
-                raise
+        # Create chat interface
+        prompt_widget = widgets.Text(description="You:", placeholder="Type your prompt (e.g., Describe image1.jpg and image2.jpg)")
+        submit_button = widgets.Button(description="Submit")
+        output = widgets.Output()
 
-            text = processor.batch_decode(text_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)
-            response = text[0].split('assistant\n')[-1]
-            
-            # Save audio if generated
-            os.makedirs('.generated-audio', exist_ok=True)
-            if audio is not None:
-                sf.write(
-                    ".generated_audio/reponse.wav",
-                    audio.reshape(-1).detach().cpu().numpy(),
-                    samplerate=24000,
-                )
+        def on_submit(button):
+            with output:
+                clear_output()
+                prompt = prompt_widget.value.strip()
+                if prompt.lower() == 'exit':
+                    print("Chat ended.")
+                    return
 
-            print("Assistant", response)
-            display(Audio('.generated_audio/reponse.wav')) 
+                elements = extract_prompt_elements(prompt, verbose=True)
+                conversation_copy = conversation.copy()  # Avoid modifying global conversation
+                conv, inputs = prepare_inputs(conversation_copy, elements, processing_args, processor, model)
+
+                try:
+                    logger.info(f"Generating response on device={model.device}")
+                    text_ids, audio = model.generate(**inputs, use_audio_in_video=processing_args.use_audio_in_video)
+                except Exception as e:
+                    print(f"Inference failed: {e}")
+                    return
+
+                text = processor.batch_decode(text_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)
+                response = text[0].split('assistant\n')[-1]
+
+                os.makedirs('.generated_audio', exist_ok=True)
+                output_audio = ".generated_audio/response.wav"
+                if audio is not None:
+                    sf.write(
+                        output_audio,
+                        audio.reshape(-1).detach().cpu().numpy(),
+                        samplerate=24000
+                    )
+
+                print("Assistant:", response)
+                if audio is not None:
+                    audio_data, sample_rate = sf.read(output_audio)
+                    audio_duration = len(audio_data) / sample_rate
+                    display(Audio(output_audio, autoplay=False))
+                    time.sleep(audio_duration + 0.5)
+
+        submit_button.on_click(on_submit)
+        display(widgets.VBox([prompt_widget, submit_button, output]))
 
     chat()
 
