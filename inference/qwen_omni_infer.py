@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Union
+from typing import Union, Dict
 import torch
 from transformers import (
     HfArgumentParser,
@@ -10,6 +10,10 @@ from qwen_omni_utils import process_mm_info
 import sys 
 import os
 import logging
+import re
+import soundfile as sf 
+from IPython.display import Audio, display
+
 
 logger = logging.getLogger(__name__)
 
@@ -128,8 +132,29 @@ def main():
 
     )
 
-    def prepare_inputs(conversation=None, input=None):
-        
+    def prepare_inputs(conversation=None, elements: Dict = None):
+        prompt_template = {
+            'role':'user',
+            'content':[
+                {'type':'text', 'text':elements['text']}
+            ]
+        }
+
+        # Add images to prompt
+        for image in elements['images']:
+            if is_image_file(image):
+                prompt_template['content'].append({'type':'image', 'image':image})
+
+        # Add audio to prompt
+        for audio in elements['audio']:
+            if is_audio_file(image):
+                prompt_template['content'].append({'type':'audio', 'audio':audio})
+
+        # Add video to prompt
+        for video in elements['video']:
+            if is_video_file(image):
+                prompt_template['content'].append({'type':'video', 'image':video})
+
 
 
         text = processor.apply_chat_template(conversation, add_generation_prompt=processing_args.add_generation_prompt, tokenize=processing_args.tokenize)
@@ -139,6 +164,92 @@ def main():
         inputs = inputs.to(model.device).to(model.dtype)
         return conversation, inputs
 
+    def is_image_file(path):
+        """Check if path is an image file."""
+        return path.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.bmp'))
+
+    def is_audio_file(path):
+        """Check if path is an audio file."""
+        return path.lower().endswith(('.wav', '.mp3', '.ogg', '.aac', '.flac'))
+
+    def is_video_file(path):
+        """Check if path is a video file."""
+        return path.lower().endswith(('.mp4', '.avi', '.mov', '.wmv', '.mkv'))
+
+    def extract_prompt_elements(prompt, verbose=False):
+        """Extract text, image, audio, and video from prompt."""
+        # Regex patterns
+        image_pattern = re.compile(r'((https?://[^\s<>"]+|www\.[^\s<>"]+|[^\s<>"]+\.(jpg|jpeg|png|gif|bmp))($|[^\w]))')
+        audio_pattern = re.compile(r'((https?://[^\s<>"]+|www\.[^\s<>"]+|[^\s<>"]+\.(wav|mp3|ogg|aac|flac))($|[^\w]))')
+        video_pattern = re.compile(r'((https?://[^\s<>"]+|www\.[^\s<>"]+|[^\s<>"]+\.(mp4|avi|mov|wmv|mkv))($|[^\w]))')
+
+        elements = {
+            "images": [],
+            "audio": [],
+            "video": [],
+            "text": prompt
+        }
+
+        # Extract URLs and files
+        for pattern, key in [
+            (video_pattern, "video"),
+            (audio_pattern, "audio"),
+            (image_pattern, "images"),
+        ]:
+            matches = pattern.findall(prompt)
+            for match in matches:
+                url_or_path = match[0]  # Full match (without boundary)
+                elements[key].append(url_or_path)
+                # Remove from prompt to isolate text
+                elements["text"] = re.sub(pattern, ' ', elements["text"])
+
+        # Clean up text (remove extra spaces)
+        elements["text"] = ' '.join(elements["text"].split())
+        if verbose:
+            print("Extracted elements:", elements)
+
+        return elements
+    
+    def chat():
+        conversation = [
+            {
+                "role": "system",
+                "content": [
+                    {"type": "text", "text": "You are Qwen, a virtual human developed by the Qwen Team, Alibaba Group, capable of perceiving auditory and visual inputs, as well as generating text and speech."}
+                ],
+            },
+        ]
+        while True:
+            prompt = input('You: ')
+            if prompt.lower() == 'exit':
+                break
+
+            elements = extract_prompt_elements(prompt)
+            conversation, inputs = prepare_inputs(conversation=conversation, elements=elements)
+            # Inference: Generation of the output text and audio
+            try:
+                print(f"Generating response\n device={model.device} ...")
+                text_ids, audio = model.generate(**inputs, use_audio_in_video=processing_args.use_audio_in_video)
+            except Exception as e:
+                print(f"Inference failed: {e}")
+                raise
+
+            text = processor.batch_decode(text_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)
+            response = text[0].split('assistant\n')[-1]
+            
+            # Save audio if generated
+            os.makedirs('.generated-audio', exist_ok=True)
+            if audio is not None:
+                sf.write(
+                    ".generated_audio/reponse.wav",
+                    audio.reshape(-1).detach().cpu().numpy(),
+                    samplerate=24000,
+                )
+
+            print("Assistant", response)
+            display(Audio('.generated_audio/reponse.wav')) 
 
 
 
+if __name__ == '__main__':
+    main()
