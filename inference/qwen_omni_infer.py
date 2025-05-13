@@ -247,7 +247,7 @@ def main():
 
                 elements = extract_prompt_elements(prompt, verbose=True)
                 conversation_copy = conversation.copy()
-                conv, inputs = prepare_inputs(conversation_copy, elements, processing_args, processor, model)
+                conv, inputs = prepare_inputs(conversation_copy, elements)
 
                 try:
                     logger.info(f"Generating response on device={model.device}")
