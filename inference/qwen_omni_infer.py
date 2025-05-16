@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Union, Dict
+from altair import Description
 import torch
 from transformers import (
     HfArgumentParser,
@@ -213,8 +214,7 @@ def main():
 
         return elements
     
-    def chat():
-        conversation = [
+    conversation = [
             {
                 "role": "system",
                 "content": [
@@ -223,6 +223,7 @@ def main():
             }
         ]
 
+    def chat():
         # Create chat interface
         prompt_widget = widgets.Text(
             value='',
@@ -235,22 +236,31 @@ def main():
             button_style='primary',
             tooltip='Click to submit prompt'
         )
+
+        image_upload = widgets.FileUpload(
+            accept='.jpg,.jpeg,.png,.gif,.bmp',
+            multiple=False,
+            description='Image'
+        )
+
+        video_upload = widgets.FileUpload(
+            accept='.mp4',
+            multiple=False,
+            description='Video'
+        )
         output = widgets.Output()
 
         def on_submit(button):
             with output:
-                clear_output()
                 prompt = prompt_widget.value.strip()
                 if prompt.lower() == 'exit':
                     print("Chat ended.")
                     return
 
                 elements = extract_prompt_elements(prompt, verbose=True)
-                conversation_copy = conversation.copy()
-                conv, inputs = prepare_inputs(conversation_copy, elements)
+                conversation, inputs = prepare_inputs(conversation, elements)
 
                 try:
-                    logger.info(f"Generating response on device={model.device}")
                     text_ids, audio = model.generate(**inputs, use_audio_in_video=processing_args.use_audio_in_video)
                 except Exception as e:
                     print(f"Inference failed: {e}")
@@ -277,28 +287,9 @@ def main():
                 prompt_widget.value = ''  # Clear input after submission
 
         submit_button.on_click(on_submit)
-        display(widgets.VBox([prompt_widget, submit_button, output]))
+        display(widgets.VBox([image_upload, video_upload,prompt_widget, submit_button, output]))
 
-        # Fallback non-interactive mode
-        print("If the widget doesn't display, use this cell to test a prompt:")
-        test_prompt = "Describe /kaggle/input/your-dataset/image1.jpg and /kaggle/input/your-dataset/image2.jpg"
-        print(f"Testing with prompt: {test_prompt}")
-        elements = extract_prompt_elements(test_prompt, verbose=True)
-        conversation_copy = conversation.copy()
-        conv, inputs = prepare_inputs(conversation_copy, elements)
-        try:
-            text_ids, audio = model.generate(**inputs, use_audio_in_video=processing_args.use_audio_in_video)
-            text = processor.batch_decode(text_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)
-            response = text[0].split('assistant\n')[-1]
-            os.makedirs('.generated_audio', exist_ok=True)
-            output_audio = ".generated_audio/test_response.wav"
-            if audio is not None:
-                sf.write(output_audio, audio.reshape(-1).detach().cpu().numpy(), samplerate=24000)
-            print("Assistant (test):", response)
-            if audio is not None:
-                display(Audio(output_audio, autoplay=True))
-        except Exception as e:
-            print(f"Test inference failed: {e}")
+
     chat()
 
 if __name__ == '__main__':
